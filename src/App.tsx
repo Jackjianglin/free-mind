@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Stage, Layer } from 'react-konva';
 import MindComponent from './components/MindComponent'
 import EventBus from './EventBus'
@@ -44,7 +44,12 @@ const App = () => {
     setNodes([...nodes])
   }
 
-  EventBus.on('updateNodeData', updateNodeData);
+  useEffect(() => {
+    EventBus.on('updateNodeData', updateNodeData);
+    return () => {
+      EventBus.un('updateNodeData', updateNodeData)
+    }
+  }, [nodes]);
   return (
     <Stage
       offsetX={-size.width / (2 * k)}

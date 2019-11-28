@@ -13,6 +13,11 @@ export default ({ id, position }: { id: string, position: { x: number; y: number
                     position: { x: e.evt.x, y: e.evt.y }
                 });
             }}
+            onDblClick={(e) => {
+                EventBus.emit('updateOrigin', {
+                    position: { x: e.evt.x, y: e.evt.y }
+                });
+            }}
             width={20}
             height={20}
             fill={Konva.Util.getRandomColor()}

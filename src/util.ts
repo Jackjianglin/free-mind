@@ -1,6 +1,11 @@
+import React from 'react'
+
+let _id = 0;
+export const getUniqueId = () => String(_id++)
+
 type IMethod = (data: any) => void
 let methods: { [x: string]: IMethod[] } = {}
-const Bus = {
+export const EventBus = {
     emit(key: string, data: any) {
         if (methods[key] instanceof Array) {
             methods[key].forEach(res => res((data)))
@@ -25,4 +30,11 @@ const Bus = {
     }
 }
 
-export default Bus;
+
+
+export const GlobalContext = React.createContext<IGlobal>({
+    k: 1,
+    origin: { x: 0, y: 0 },
+    updateOrigin: () => { }
+})
+

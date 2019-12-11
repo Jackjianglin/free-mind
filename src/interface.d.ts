@@ -10,5 +10,12 @@ interface IPosition {
 interface IGlobal {
     k: number;
     origin: IPosition;
-    updateOrigin: (position: IPosition) => void
+}
+
+interface ISVGNode {
+    id: string;
+    size: ISize;
+    position: IPosition;
+    active: boolean;
+    hidden: boolean;
 }

@@ -17,5 +17,4 @@ interface ISVGNode {
     size: ISize;
     position: IPosition;
     active: boolean;
-    hidden: boolean;
 }

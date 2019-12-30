@@ -13,19 +13,15 @@
  */
 
 import React, { useState, useContext } from 'react';
-import { GlobalContext } from '../util'
+import { GlobalContext, getUniqueId } from '../../util'
+import SVGComponent from './node-component'
+import SVGLine from './line-component'
+import { ComponentName, ComponentLinkCirclePosition } from './constants'
+import { getNodeStartPositionInScreen, computeNodeCirclePosition } from './util'
 enum MouseDownType {
     Left, Right, Other
 }
-enum ComponentName {
-    Node = "Node",
-    Line = "Line",
-    Container = "Container",
-    Other = "Other"
-}
-enum ComponentLinkCirclePosition {
-    Top = "Top", Right = "Right", Bottom = "Bottom", Left = "Left"
-}
+
 interface ISVGLine {
     id: string;
     start: {
@@ -46,73 +42,9 @@ interface IMouseDownInfo {
     };
     nodeCircleDirection?: ComponentLinkCirclePosition
 }
-let _id = 0;
 let activeNodeMove = false; // 活跃的节点是否移动了
-const getUniqueId = (): string => {
-    return String(_id++)
-}
-const LinkCircle = ({ position, r, direction }: { position: IPosition; r: number; direction: ComponentLinkCirclePosition }) => {
-    const [active, setActive] = useState(false);
-    return (
-        <circle data-direction={direction} onMouseEnter={() => setActive(true)} onMouseLeave={() => setActive(false)}
-            cx={position.x} cy={position.y} r={active ? r * 1.5 : r} stroke="black" strokeWidth="1" fill="pink" />
-    )
-}
-
-const SVGComponent = ({ id, position, size, active }: ISVGNode) => {
-    const { k, origin } = useContext(GlobalContext);
-    const componentOffset = {
-        x: (window.innerWidth / 2) - (origin.x - position.x * k) - (size.width / 2),
-        y: (window.innerHeight / 2) - (origin.y - position.y * k) - (size.height / 2),
-    }
-    const componentSize = {
-        width: size.width * k,
-        height: size.height * k
-    }
-    const isHidden = (): boolean => {
-        if (componentOffset.x > window.innerWidth && componentOffset.y > window.innerHeight) return true;
-        if (componentOffset.x + componentSize.width < 0 && componentOffset.y + componentSize.height < 0) return true;
-        return false;
-    }
-
-    return (
-        isHidden()
-            ?
-            null
-            :
-            <svg id={id} {...componentSize} {...componentOffset} data-name={ComponentName.Node}>
-                <rect {...componentSize} stroke={active ? 'orange' : 'black'} strokeWidth={active ? 5 : 2} fill="gray" />
-                <LinkCircle direction={ComponentLinkCirclePosition.Left} position={{ x: 5, y: componentSize.height / 2 }} r={5}></LinkCircle>
-                <LinkCircle direction={ComponentLinkCirclePosition.Right} position={{ x: componentSize.width - 5, y: componentSize.height / 2 }} r={5}></LinkCircle>
-            </svg>
-    )
-}
-
-const SVGLine = ({ start, end }: { start: IPosition; end: IPosition }) => {
-    const middleY = (end.y + start.y) / 2;
-    const middleX = (end.x + start.x) / 2;
 
 
-    /**
-     * 解决鼠标moveup 时的target 是path 问题
-     */
-    if (end.x > start.x) {
-        end.x -= 1;
-    } else {
-        end.x += 1
-    }
-    if (end.y > start.y) {
-        end.y -= 1;
-    } else {
-        end.y += 1
-    }
-
-
-    const path = `M ${start.x} ${start.y} C ${middleX} ${start.y} ${middleX} ${start.y} ${middleX} ${middleY} S ${middleX} ${end.y} ${end.x} ${end.y}`;
-    return (
-        <path d={path} stroke="black" fill="transparent" />
-    )
-}
 const getComponentName = (node: HTMLElement | null): { name: ComponentName, id: string } => {
     if (node === null) return {
         name: ComponentName.Other,
@@ -157,18 +89,33 @@ const getInitNodesConfig = (): ISVGNode[] => {
         },
     ]
 }
-
+const WireFrame = ({ start, end }: { start: IPosition, end: IPosition }) => {
+    const begin = {
+        x: start.x < end.x ? start.x : end.x,
+        y: start.y < end.y ? start.y : end.y,
+    }
+    const size = {
+        height: Math.abs(end.y - start.y),
+        width: Math.abs(end.x - start.x)
+    }
+    return <rect strokeDasharray='10' stroke='orange' fillOpacity={0} strokeWidth={2} {...begin}{...size} ></rect>
+}
 export default () => {
     const [k, setK] = useState(1);
-    const [size, setSize] = useState<ISize>({ width: window.innerWidth * k, height: window.innerHeight * k });
+    const [screenSize, setScreentSize] = useState<ISize>({ width: window.innerWidth, height: window.innerHeight });
+    const [size, setSize] = useState<ISize>({ width: screenSize.width * k, height: screenSize.height * k });
     const [originOffset, setOriginOffset] = useState<IPosition>({ x: 0, y: 0 })
-    const [moveingLinePosition, setMovingLinePosition] = useState<{ start: IPosition, end: IPosition } | null>(null);
     const origin: IPosition = { x: ((size.width / 2) + originOffset.x) * k, y: ((size.height / 2) + originOffset.y) * k }
-
     const [mouseDownInfo, setMouseDownInfo] = useState<IMouseDownInfo>(getInitMouseDownInfo());
     const [nodesConfig, setNodesConfig] = useState<ISVGNode[]>(getInitNodesConfig());
     const [linesConfig, setLinesConfig] = useState<ISVGLine[]>([]);
-    const NodeReset = () => {
+
+    // 正在画的线
+    const [moveingLinePosition, setMovingLinePosition] = useState<{ start: IPosition, end: IPosition } | null>(null);
+    // 正在画的线框
+    const [wireFrameConfig, setWireFrameConfig] = useState<{ start: IPosition, end: IPosition } | null>(null);
+
+    const NodeActiveReset = () => {
         nodesConfig.forEach(res => {
             res.active = false;
         });
@@ -178,42 +125,24 @@ export default () => {
         const endNode = nodesConfig.find(res => res.id === lineConfig.end.nodeId)
         if (!endNode) return null;
         if (!startNode) return null;
-        const startOffset = {
-            x: (window.innerWidth / 2) - (origin.x - startNode.position.x * k) - (startNode.size.width / 2),
-            y: (window.innerHeight / 2) - (origin.y - startNode.position.y * k) - (startNode.size.height / 2),
-        }
-        const endOffset = {
-            x: (window.innerWidth / 2) - (origin.x - endNode.position.x * k) - (endNode.size.width / 2),
-            y: (window.innerHeight / 2) - (origin.y - endNode.position.y * k) - (endNode.size.height / 2),
-        }
-        // { x: 5, y: componentSize.height / 2 }
-        // { x: componentSize.width - 5, y: componentSize.height / 2 }
+
+        const startOffset = getNodeStartPositionInScreen(screenSize, origin, k, startNode.position, startNode.size)
+        const endOffset = getNodeStartPositionInScreen(screenSize, origin, k, endNode.position, endNode.size)
+
+        const startCircleOffset = computeNodeCirclePosition(lineConfig.start.direction, startNode.size)
+        const endCircleOffset = computeNodeCirclePosition(lineConfig.end.direction, endNode.size)
+
         let start = {
-            x: startOffset.x,
-            y: startOffset.y
+            x: startOffset.x + startCircleOffset.x,
+            y: startOffset.y + startCircleOffset.y
         }
         let end = {
-            x: endOffset.x,
-            y: endOffset.y
-        }
-        if (lineConfig.start.direction === ComponentLinkCirclePosition.Right) {
-            start.x += (startNode.size.width - 5)
-            start.y += (startNode.size.height / 2)
-        } else if (lineConfig.start.direction === ComponentLinkCirclePosition.Left) {
-            start.x += 5
-            start.y += (startNode.size.height / 2)
-        }
-
-        if (lineConfig.end.direction === ComponentLinkCirclePosition.Right) {
-            end.x += (endNode.size.width - 5)
-            end.y += (endNode.size.height / 2)
-        } else if (lineConfig.end.direction === ComponentLinkCirclePosition.Left) {
-            end.x += 5
-            end.y += (endNode.size.height / 2)
+            x: endOffset.x + endCircleOffset.x,
+            y: endOffset.y + endCircleOffset.y
         }
         return {
             start,
-            end: end
+            end
         }
     }
     const NodeClick = (id: string, otherRest: boolean = true) => {
@@ -226,14 +155,48 @@ export default () => {
             const node = nodesConfig.find(res => res.id === id)
             if (!node) return;
             const currentValue = node.active;
-            NodeReset()
+            NodeActiveReset()
             node.active = !currentValue;
             setNodesConfig([...nodesConfig])
         }
     }
+    // 遍历节点，在虚线框内的矩形激活
+    const setNodesActiveInRect = ({ start, end }: { start: IPosition, end: IPosition }) => {
+        const wireFrameStart = start
+        const wireFrameEnd = end
+        if (wireFrameStart.x > wireFrameEnd.x) {
+            [wireFrameStart.x, wireFrameEnd.x] = [wireFrameEnd.x, wireFrameStart.x]
+        }
+        if (wireFrameStart.y > wireFrameEnd.y) {
+            [wireFrameStart.y, wireFrameEnd.y] = [wireFrameEnd.y, wireFrameStart.y]
+        }
+        nodesConfig.forEach(node => {
+            const nodeStart = getNodeStartPositionInScreen(screenSize, origin, k, node.position, node.size);
+            const nodeEnd = {
+                x: nodeStart.x + node.size.width,
+                y: nodeStart.y + node.size.height
+            }
+            // 相交矩形
+            const intersectRect = {
+                start: {
+                    x: Math.max(nodeStart.x, wireFrameStart.x),
+                    y: Math.max(nodeStart.y, wireFrameStart.y),
+                },
+                end: {
+                    x: Math.min(nodeEnd.x, wireFrameEnd.x),
+                    y: Math.min(nodeEnd.y, wireFrameEnd.y),
+                }
+            }
+            if(intersectRect.end.x > intersectRect.start.x && intersectRect.end.y > intersectRect.start.y){
+                // 相交成功
+                node.active = true;
+            }
+        })
+        setNodesConfig([...nodesConfig])
+    }
     return (
-        <GlobalContext.Provider value={{ k, origin }}>
-            <svg style={{ width: window.innerWidth, height: window.innerHeight, cursor: mouseDownInfo.mouseDownType === MouseDownType.Right ? 'grab' : 'default' }}
+        <GlobalContext.Provider value={{ k, origin, screenSize }}>
+            <svg style={{ ...screenSize, cursor: mouseDownInfo.mouseDownType === MouseDownType.Right ? 'grab' : 'default' }}
                 data-name={ComponentName.Container}
                 onClick={(e) => {
                     // 鼠标点击时的操作，用于激活选中节点
@@ -244,7 +207,7 @@ export default () => {
                                 NodeClick(id || '', !e.ctrlKey);
                                 break;
                             case ComponentName.Container:
-                                NodeReset();
+                                NodeActiveReset();
                                 setNodesConfig([...nodesConfig])
                                 break;
                         }
@@ -283,7 +246,6 @@ export default () => {
                     const componet = getComponentName(e.target as HTMLElement);
                     // 如果点击的是节点上的小圆圈
                     let nodeCircleDirection = undefined;
-                    // componet.name === container
                     if ((componet.name === ComponentName.Node) &&
                         ((e.target as HTMLElement).tagName === 'circle') &&
                         (mouseDownInfo.componet.name === ComponentName.Node) &&
@@ -306,7 +268,11 @@ export default () => {
                         setLinesConfig([...linesConfig, lineConfig])
                     }
 
+                    if (wireFrameConfig) {
+                        setNodesActiveInRect(wireFrameConfig);
+                    }
                     setMovingLinePosition(null);
+                    setWireFrameConfig(null);
                     setMouseDownInfo(getInitMouseDownInfo())
                 }}
                 onMouseMove={(e) => {
@@ -319,6 +285,10 @@ export default () => {
                         })
                     }
                     if (mouseDownInfo.mouseDownType === MouseDownType.Left) {
+                        if (mouseDownInfo.componet.name === ComponentName.Container) {
+
+                        }
+                        // 点击的是node 上的小圆圈
                         if (mouseDownInfo.nodeCircleDirection) {
                             setMovingLinePosition({
                                 start: mouseDownInfo.mouseDownPosition,
@@ -328,15 +298,25 @@ export default () => {
                             })
                         } else {
                             // 如果有选中的节点，移动节点位置
-                            activeNodeMove = true;
                             const activeNodes = nodesConfig.filter(res => res.active);
-                            activeNodes.forEach(res => {
-                                res.position = {
-                                    x: res.position.x + (e.movementX / k),
-                                    y: res.position.y + (e.movementY / k)
-                                }
-                            });
-                            setNodesConfig([...nodesConfig])
+                            if (activeNodes.length > 0) {
+                                activeNodeMove = true;
+                                activeNodes.forEach(res => {
+                                    res.position = {
+                                        x: res.position.x + (e.movementX / k),
+                                        y: res.position.y + (e.movementY / k)
+                                    }
+                                });
+                                setNodesConfig([...nodesConfig])
+                            } else {
+                                // 画出线框
+                                setWireFrameConfig({
+                                    start: mouseDownInfo.mouseDownPosition,
+                                    end: {
+                                        x: e.clientX, y: e.clientY
+                                    }
+                                })
+                            }
                         }
                     }
                 }}
@@ -349,6 +329,9 @@ export default () => {
                 }
                 {
                     moveingLinePosition ? <SVGLine {...moveingLinePosition}></SVGLine> : null
+                }
+                {
+                    wireFrameConfig ? <WireFrame {...wireFrameConfig}></WireFrame> : null
                 }
                 {
                     linesConfig.map(res => {

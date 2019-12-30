@@ -10,6 +10,7 @@ interface IPosition {
 interface IGlobal {
     k: number;
     origin: IPosition;
+    screenSize: ISize
 }
 
 interface ISVGNode {

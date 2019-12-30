@@ -35,5 +35,9 @@ export const EventBus = {
 export const GlobalContext = React.createContext<IGlobal>({
     k: 1,
     origin: { x: 0, y: 0 },
+    screenSize: {
+        width: window.innerWidth,
+        height: window.innerHeight
+    }
 })
 

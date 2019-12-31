@@ -1,7 +1,8 @@
 import React, { useState, useContext } from 'react';
 import { GlobalContext } from '../../util'
-import { ComponentLinkCirclePosition, ComponentName } from './constants'
+import { ComponentLinkCirclePosition, ComponentName, EB_SVG_MOUSE_DOWN } from './constants'
 import { getNodeStartPositionInScreen, computeNodeCirclePosition } from './util'
+import { EventBus } from '../../util'
 
 const LinkCircle = ({ position, r, direction, otherConfig }: { position: IPosition; r: number; direction: ComponentLinkCirclePosition; otherConfig?: { [x: string]: any } }) => {
     const [active, setActive] = useState(false);
@@ -30,14 +31,20 @@ export default ({ id, position, size, active }: ISVGNode) => {
         return false;
     }
     const textSize = 18 * k;
+
+
     const generateTextarea = (e: React.MouseEvent) => {
         const textarea = document.createElement('textarea');
         textarea.setAttribute("style", getTextAreaStyle(componentOffset, componentSize));
-        textarea.value = text
-        textarea.onblur = () => {
+        textarea.value = text;
+
+        const removeTextArea = () => {
             setText(textarea.value)
             document.body.removeChild(textarea);
+            EventBus.un(EB_SVG_MOUSE_DOWN, removeTextArea);
         }
+
+        EventBus.on(EB_SVG_MOUSE_DOWN, removeTextArea)
         document.body.appendChild(textarea);
         textarea.blur()
     }
@@ -48,6 +55,8 @@ export default ({ id, position, size, active }: ISVGNode) => {
             :
             <svg id={id} {...componentSize} {...componentOffset} data-name={ComponentName.Node}>
                 <rect
+                    onMouseDown={(e) => {
+                    }}
                     onDoubleClick={(e) => {
                         generateTextarea(e);
                         e.preventDefault();

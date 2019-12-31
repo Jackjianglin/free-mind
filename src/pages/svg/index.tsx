@@ -16,8 +16,11 @@ import React, { useState, useContext } from 'react';
 import { GlobalContext, getUniqueId } from '../../util'
 import SVGComponent from './node-component'
 import SVGLine from './line-component'
-import { ComponentName, ComponentLinkCirclePosition } from './constants'
+import { ComponentName, ComponentLinkCirclePosition, EB_SVG_MOUSE_DOWN } from './constants'
 import { getNodeStartPositionInScreen, computeNodeCirclePosition } from './util'
+import { EventBus } from '../../util'
+
+import { cloneDeep } from 'lodash'
 enum MouseDownType {
     Left, Right, Other
 }
@@ -145,6 +148,11 @@ export default () => {
             end
         }
     }
+    const cloneNodeConfig = (node: ISVGNode): ISVGNode => {
+        const newNode = cloneDeep(node)
+        newNode.id = getUniqueId()
+        return newNode
+    }
     const NodeClick = (id: string, otherRest: boolean = true) => {
         if (otherRest === false) {
             const node = nodesConfig.find(res => res.id === id)
@@ -187,7 +195,7 @@ export default () => {
                     y: Math.min(nodeEnd.y, wireFrameEnd.y),
                 }
             }
-            if(intersectRect.end.x > intersectRect.start.x && intersectRect.end.y > intersectRect.start.y){
+            if (intersectRect.end.x > intersectRect.start.x && intersectRect.end.y > intersectRect.start.y) {
                 // 相交成功
                 node.active = true;
             }
@@ -198,23 +206,24 @@ export default () => {
         <GlobalContext.Provider value={{ k, origin, screenSize }}>
             <svg style={{ ...screenSize, cursor: mouseDownInfo.mouseDownType === MouseDownType.Right ? 'grab' : 'default' }}
                 data-name={ComponentName.Container}
-                onClick={(e) => {
-                    // 鼠标点击时的操作，用于激活选中节点
-                    const { name, id } = getComponentName(e.target as HTMLElement);
-                    if (!activeNodeMove) {
-                        switch (name) {
-                            case ComponentName.Node:
-                                NodeClick(id || '', !e.ctrlKey);
-                                break;
-                            case ComponentName.Container:
-                                NodeActiveReset();
-                                setNodesConfig([...nodesConfig])
-                                break;
-                        }
-                    }
-                    activeNodeMove = false;
-                }}
+                // onClick={(e) => {
+                //     // 鼠标点击时的操作，用于激活选中节点
+                //     const { name, id } = getComponentName(e.target as HTMLElement);
+                //     if (!activeNodeMove) {
+                //         switch (name) {
+                //             case ComponentName.Node:
+                //                 NodeClick(id || '', !e.ctrlKey);
+                //                 break;
+                //             case ComponentName.Container:
+                //                 NodeActiveReset();
+                //                 setNodesConfig([...nodesConfig])
+                //                 break;
+                //         }
+                //     }
+                //     activeNodeMove = false;
+                // }}
                 onMouseDown={(e) => {
+                    EventBus.emit(EB_SVG_MOUSE_DOWN)
                     // 获取鼠标点击时的信息
                     const componet = getComponentName(e.target as HTMLElement);
                     let mouseDownType: MouseDownType = MouseDownType.Other;
@@ -244,7 +253,7 @@ export default () => {
                 }}
                 onMouseUp={(e) => {
                     const componet = getComponentName(e.target as HTMLElement);
-                    // 如果点击的是节点上的小圆圈
+                    // 如果要连接两个节点
                     let nodeCircleDirection = undefined;
                     if ((componet.name === ComponentName.Node) &&
                         ((e.target as HTMLElement).tagName === 'circle') &&
@@ -267,7 +276,44 @@ export default () => {
                         }
                         setLinesConfig([...linesConfig, lineConfig])
                     }
+                    // 如果要生成新节点
+                    if (componet.name === ComponentName.Container && mouseDownInfo.nodeCircleDirection) {
+                        const startPosition: IPosition = mouseDownInfo.mouseDownPosition;
+                        const endPostion: IPosition = {
+                            x: e.clientX,
+                            y: e.clientY
+                        }
+                        const direction = Math.sqrt((startPosition.x - endPostion.x) * (startPosition.x - endPostion.x) + (startPosition.y - endPostion.y) * (startPosition.y - endPostion.y))
+                        if (direction > 50) {
+                            const startNode = nodesConfig.find(res => res.id === mouseDownInfo.componet.id)
+                            if (!startNode) return;
 
+                            const newNode = cloneNodeConfig(startNode);
+                            // 新节点的相对位置
+                            newNode.position.y = startNode.position.y + (e.clientY - mouseDownInfo.mouseDownPosition.y);
+                            newNode.position.x = startNode.position.x + (e.clientX - mouseDownInfo.mouseDownPosition.x);
+                            const endNodeDirection: ComponentLinkCirclePosition = newNode.position.x > startNode.position.x ? ComponentLinkCirclePosition.Left : ComponentLinkCirclePosition.Right
+                            // 细调节点位置
+                            if (endNodeDirection === ComponentLinkCirclePosition.Left) {
+                                newNode.position.x += startNode.size.width
+                            } else if (endNodeDirection === ComponentLinkCirclePosition.Right) {
+                                newNode.position.x -= startNode.size.width
+                            }
+                            setNodesConfig([...nodesConfig, newNode])
+                            const lineConfig: ISVGLine = {
+                                id: getUniqueId(),
+                                start: {
+                                    nodeId: startNode.id,
+                                    direction: mouseDownInfo.nodeCircleDirection
+                                },
+                                end: {
+                                    nodeId: newNode.id,
+                                    direction: endNodeDirection
+                                }
+                            }
+                            setLinesConfig([...linesConfig, lineConfig])
+                        }
+                    }
                     if (wireFrameConfig) {
                         setNodesActiveInRect(wireFrameConfig);
                     }

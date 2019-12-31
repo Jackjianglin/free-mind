@@ -6,7 +6,7 @@ export const getUniqueId = () => String(_id++)
 type IMethod = (data: any) => void
 let methods: { [x: string]: IMethod[] } = {}
 export const EventBus = {
-    emit(key: string, data: any) {
+    emit(key: string, data?: any) {
         if (methods[key] instanceof Array) {
             methods[key].forEach(res => res((data)))
         }

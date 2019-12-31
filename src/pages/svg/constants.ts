@@ -10,3 +10,6 @@ export enum ComponentName {
     Container = "Container",
     Other = "Other"
 }
+
+
+export const EB_SVG_MOUSE_DOWN = 'SVG_MOUSE_DOWN'
